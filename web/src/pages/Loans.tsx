@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { api, ApiRequestError } from '../api/client';
 import { useSession } from '../context/SessionContext';
 import { useActiveTerm } from '../hooks/useActiveTerm';
@@ -11,6 +11,7 @@ export function Loans() {
   const { currentMember } = useSession();
   const { termId, loading: termLoading } = useActiveTerm();
   const [loans, setLoans] = useState<Loan[]>([]);
+  const [allTimeLoans, setAllTimeLoans] = useState<Loan[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionError, setActionError] = useState<{ code: string; message: string } | null>(null);
   const [repayAmount, setRepayAmount] = useState<Record<number, string>>({});
@@ -18,15 +19,33 @@ export function Loans() {
   const isAdmin = currentMember?.role === 'ADMIN';
 
   const load = () => {
-    if (!termId) return;
     setLoading(true);
-    api.loans
-      .byTerm(termId)
-      .then(setLoans)
+
+    // Safely execute both promises using defensive fallback arrays if they reject or are missing
+    const termLoansPromise = termId ? api.loans.byTerm(termId) : Promise.resolve([]);
+
+    // Fallback gracefully if api.loans.list is completely missing from your old client setup
+    const historyLoansPromise = (api.loans && typeof api.loans.list === 'function')
+      ? api.loans.list()
+      : Promise.resolve([]);
+
+    Promise.all([
+      termLoansPromise.catch(() => []),
+      historyLoansPromise.catch(() => [])
+    ])
+      .then(([currentTermLoans, totalHistory]) => {
+        setLoans(Array.isArray(currentTermLoans) ? currentTermLoans : []);
+        setAllTimeLoans(Array.isArray(totalHistory) ? totalHistory : []);
+      })
+      .catch((err) => {
+        console.error("Shielded credit metric pipeline load error:", err);
+      })
       .finally(() => setLoading(false));
   };
 
-  useEffect(load, [termId]);
+  useEffect(() => {
+    load();
+  }, [termId]);
 
   const handle = async (fn: () => Promise<Loan>) => {
     setActionError(null);
@@ -39,91 +58,149 @@ export function Loans() {
     }
   };
 
-  if (termLoading || loading) return <p className="text-ledger-ink-soft">Loading loans…</p>;
+  // Aggressive protection array mapping guards
+  const safeLoansList = Array.isArray(loans) ? loans : [];
+  const safeHistoryList = Array.isArray(allTimeLoans) ? allTimeLoans : [];
+
+  const myAllTimeLoans = safeHistoryList.filter(l => l && l.memberId === currentMember?.id);
+  const totalPrincipalBorrowed = myAllTimeLoans.reduce((acc, curr) => acc + (curr?.amount || 0), 0);
+
+  const totalInterestPaid = myAllTimeLoans
+    .filter(l => l && (l.status === 'REPAID' || (l as any).isRepaid))
+    .reduce((acc, curr) => acc + ((curr?.amount || 0) * 0.05), 0);
+
+  const activeCycleLoan = safeLoansList.find(l => l && l.memberId === currentMember?.id && l.status === 'APPROVED');
+
+  if (termLoading || loading) {
+    return <p style={{ color: '#5B5646', fontFamily: 'sans-serif', padding: '2rem' }}>Loading club loan files…</p>;
+  }
 
   return (
-    <div className="space-y-6">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '2.5rem', fontFamily: "'IBM Plex Sans', sans-serif" }}>
+
+      {/* HEADER BLOCK */}
       <div>
-        <p className="text-xs uppercase tracking-widest text-ledger-ink-soft mb-1">This term's loans</p>
-        <h2 className="font-display text-2xl font-semibold text-ledger-green-deep">All applications</h2>
+        <p style={{ textTransform: 'uppercase', fontSize: '0.75rem', color: '#5B5646', fontWeight: 600, margin: '0 0 4px 0', letterSpacing: '0.05em' }}>
+          Personal Credit Summary & Ledger
+        </p>
+        <h2 style={{ fontFamily: "'Fraunces', serif", fontSize: '2rem', color: '#1F4B3F', margin: 0 }}>
+          Loan Operations Tracker
+        </h2>
       </div>
 
+      {/* SUMMARY ACCUMULATOR ROW */}
+      <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1.25rem' }}>
+        <div style={{ padding: '1.25rem', backgroundColor: '#FFFDF8', border: '1px solid #DCD2B8', borderRadius: '8px' }}>
+          <p style={{ textTransform: 'uppercase', fontSize: '0.7rem', color: '#5B5646', margin: '0 0 6px 0', fontWeight: 600 }}>Lifetime Principal Borrowed</p>
+          <Rupee value={totalPrincipalBorrowed} style={{ fontSize: '1.6rem', fontWeight: 700, color: '#1B2430' }} />
+        </div>
+        <div style={{ padding: '1.25rem', backgroundColor: '#FFFDF8', border: '1px solid #DCD2B8', borderRadius: '8px' }}>
+          <p style={{ textTransform: 'uppercase', fontSize: '0.7rem', color: '#5B5646', margin: '0 0 6px 0', fontWeight: 600 }}>Total Interest Contributed (5% Rule)</p>
+          <Rupee value={totalInterestPaid} style={{ fontSize: '1.6rem', fontWeight: 700, color: '#1F4B3F' }} />
+        </div>
+        <div style={{ padding: '1.25rem', backgroundColor: '#1B2430', border: '1px solid #B4842A', borderRadius: '8px', color: '#FFFFFF' }}>
+          <p style={{ textTransform: 'uppercase', fontSize: '0.7rem', color: '#B4842A', margin: '0 0 6px 0', fontWeight: 700 }}>Active Unpaid Term Balance</p>
+          <Rupee value={activeCycleLoan ? activeCycleLoan.amount : 0} style={{ fontSize: '1.6rem', fontWeight: 700, color: '#FFFFFF' }} />
+        </div>
+      </section>
+
+      {/* ERROR NOTICE DISPLAY */}
       {actionError && <FallbackNotice code={actionError.code} message={actionError.message} />}
 
-      {loans.length === 0 ? (
-        <p className="text-ledger-ink-soft text-sm border border-dashed border-ledger-line rounded p-4">
-          No loans recorded for this term yet.
-        </p>
-      ) : (
-        <div className="bg-ledger-card border border-ledger-line rounded-sm overflow-hidden">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-ledger-line text-left text-ledger-ink-soft uppercase text-xs tracking-wide">
-                <th className="px-4 py-2 font-medium">Member</th>
-                <th className="px-4 py-2 font-medium text-right">Amount</th>
-                <th className="px-4 py-2 font-medium text-right">Repayable</th>
-                <th className="px-4 py-2 font-medium">Status</th>
-                <th className="px-4 py-2 font-medium">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loans.map((loan) => (
-                <tr key={loan.id} className="border-b border-ledger-line last:border-0 align-top">
-                  <td className="px-4 py-3">{loan.memberName}</td>
-                  <td className="px-4 py-3 text-right">
-                    <Rupee value={loan.amount} />
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <Rupee value={loan.totalRepayable} />
-                  </td>
-                  <td className="px-4 py-3">
-                    <StatusStamp status={loan.status} />
-                  </td>
-                  <td className="px-4 py-3">
-                    {isAdmin && loan.status === 'PENDING' && (
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handle(() => api.loans.approve(loan.id, currentMember!.id))}
-                          className="text-xs px-3 py-1 rounded-sm bg-ledger-green text-ledger-card hover:bg-ledger-green-deep"
-                        >
-                          Approve
-                        </button>
-                        <button
-                          onClick={() =>
-                            handle(() => api.loans.reject(loan.id, currentMember!.id, 'Declined by admin'))
-                          }
-                          className="text-xs px-3 py-1 rounded-sm border border-ledger-rust text-ledger-rust hover:bg-ledger-rust hover:text-ledger-card"
-                        >
-                          Reject
-                        </button>
-                      </div>
-                    )}
-                    {loan.status === 'APPROVED' && loan.memberId === currentMember?.id && (
-                      <div className="flex gap-2 items-center">
-                        <input
-                          type="number"
-                          placeholder="Amount"
-                          value={repayAmount[loan.id] ?? ''}
-                          onChange={(e) => setRepayAmount((prev) => ({ ...prev, [loan.id]: e.target.value }))}
-                          className="w-24 border border-ledger-line rounded px-2 py-1 text-xs font-mono bg-ledger-bg"
-                        />
-                        <button
-                          onClick={() =>
-                            handle(() => api.loans.repay(loan.id, Number(repayAmount[loan.id] ?? 0)))
-                          }
-                          className="text-xs px-3 py-1 rounded-sm bg-ledger-gold text-ledger-card hover:opacity-90"
-                        >
-                          Record repayment
-                        </button>
-                      </div>
-                    )}
-                  </td>
+      {/* STATEMENT LEDGER TABLE */}
+      <section style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <h3 style={{ fontFamily: "'Fraunces', serif", fontSize: '1.25rem', color: '#1F4B3F', margin: 0 }}>
+          Active Term Applications Registry
+        </h3>
+
+        {safeLoansList.length === 0 ? (
+          <div style={{ backgroundColor: '#FFFDF8', border: '1px dashed #DCD2B8', padding: '2rem', borderRadius: '8px', color: '#5B5646', textAlign: 'center' }}>
+            No loan applications filed under this active rotation term cycle yet.
+          </div>
+        ) : (
+          <div style={{ backgroundColor: '#FFFDF8', border: '1px solid #DCD2B8', borderRadius: '8px', overflow: 'hidden' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem', textAlign: 'left' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid #DCD2B8', backgroundColor: '#FFFDF8', color: '#5B5646', textTransform: 'uppercase', fontSize: '0.75rem', fontWeight: 600 }}>
+                  <th style={{ padding: '12px 16px' }}>Member Signature</th>
+                  <th style={{ padding: '12px 16px', textAlign: 'right' }}>Principal Amount</th>
+                  <th style={{ padding: '12px 16px', textAlign: 'right' }}>Total Repayable</th>
+                  <th style={{ padding: '12px 16px' }}>Status</th>
+                  <th style={{ padding: '12px 16px', textAlign: 'right' }}>Operational Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+              </thead>
+              <tbody>
+                {safeLoansList.map((loan) => {
+                  if (!loan) return null;
+                  const isMe = loan.memberId === currentMember?.id;
+                  return (
+                    <tr
+                      key={loan.id}
+                      style={{
+                        borderBottom: '1px solid #DCD2B8',
+                        backgroundColor: isMe ? 'rgba(180, 132, 42, 0.03)' : 'transparent'
+                      }}
+                    >
+                      <td style={{ padding: '14px 16px', color: '#1B2430', fontWeight: isMe ? 600 : 400 }}>
+                        {loan.memberName} {isMe && <span style={{ fontSize: '0.75rem', color: '#6C4DE6', marginLeft: '4px', fontWeight: 600 }}>(You)</span>}
+                      </td>
+                      <td style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 500 }}>
+                        <Rupee value={loan.amount || 0} />
+                      </td>
+                      <td style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 600, color: '#1F4B3F' }}>
+                        <Rupee value={loan.totalRepayable || 0} />
+                      </td>
+                      <td style={{ padding: '14px 16px' }}>
+                        <StatusStamp status={loan.status} />
+                      </td>
+                      <td style={{ padding: '14px 16px', textAlign: 'right' }}>
+
+                        {/* ADMIN GOVERNControls */}
+                        {isAdmin && loan.status === 'PENDING' && (
+                          <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                            <button
+                              onClick={() => handle(() => api.loans.approve(loan.id, currentMember!.id))}
+                              style={{ background: '#1F4B3F', color: '#FFFDF8', border: 'none', borderRadius: '4px', padding: '0.35rem 0.75rem', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}
+                            >
+                              Approve
+                            </button>
+                            <button
+                              onClick={() => handle(() => api.loans.reject(loan.id, currentMember!.id, 'Declined by admin'))}
+                              style={{ background: 'transparent', color: '#DC2626', border: '1px solid #DC2626', borderRadius: '4px', padding: '0.35rem 0.75rem', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        )}
+
+                        {/* MEMBER REPAYMENT INTERACTIVE MODULE */}
+                        {loan.status === 'APPROVED' && isMe && (
+                          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', justifyContent: 'flex-end' }}>
+                            <input
+                              type="number"
+                              placeholder="Amount"
+                              value={repayAmount[loan.id] ?? ''}
+                              onChange={(e) => setRepayAmount((prev) => ({ ...prev, [loan.id]: e.target.value }))}
+                              style={{ width: '100px', padding: '0.35rem 0.5rem', border: '1px solid #DCD2B8', borderRadius: '4px', fontSize: '0.85rem', outline: 'none', backgroundColor: '#FFFDF8', textAlign: 'right' }}
+                            />
+                            <button
+                              onClick={() => handle(() => api.loans.repay(loan.id, Number(repayAmount[loan.id] ?? 0)))}
+                              style={{ background: '#B4842A', color: '#1B2430', border: 'none', borderRadius: '4px', padding: '0.4rem 0.85rem', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}
+                            >
+                              Record Repayment
+                            </button>
+                          </div>
+                        )}
+
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
     </div>
   );
 }

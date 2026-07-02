@@ -23,10 +23,10 @@ public class Loan {
     @JoinColumn(name = "member_id")
     private Member member;
 
-    @Column(nullable = false)
+    @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal amount;
 
-    @Column(nullable = false)
+    @Column(nullable = false, precision = 5, scale = 4)
     private BigDecimal interestRate;
 
     @Column(nullable = false)
@@ -43,8 +43,15 @@ public class Loan {
 
     private String rejectionReason;
 
+    /**
+     * Corrected MLVPYC Interest Calculation.
+     * Evaluates the flat cycle interest fee directly using the interest rate
+     * factor (0.05) as a direct multiplier, bypassing the old percentage division rule.
+     */
     public BigDecimal totalRepayable() {
-        BigDecimal interest = amount.multiply(interestRate).divide(BigDecimal.valueOf(100));
+        if (amount == null) return BigDecimal.ZERO;
+        BigDecimal rate = interestRate != null ? interestRate : new BigDecimal("0.05");
+        BigDecimal interest = amount.multiply(rate);
         return amount.add(interest);
     }
 

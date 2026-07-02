@@ -1,12 +1,14 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Layout } from './components/Layout';
+import { LedgerOverview } from './pages/LedgerOverview';
 import { Dashboard } from './pages/Dashboard';
 import { ApplyLoan } from './pages/ApplyLoan';
 import { Loans } from './pages/Loans';
 import { Members } from './pages/Members';
 import { Contributions } from './pages/Contributions';
-import { Login } from './pages/Login';       // We will create this next
-import { SignUp } from './pages/SignUp';     // We will create this next
+import { AdminDashboard } from './pages/AdminDashboard'; // Import the new admin view
+import { Login } from './pages/Login';
+import { SignUp } from './pages/SignUp';
 import { SessionProvider, useSession } from './context/SessionContext';
 
 // This wrapper acts as our Production Guardrail
@@ -24,6 +26,18 @@ function ProtectedRoute({ children }: { children: React.JSX.Element }) {
   // If not logged in, force them back to the login gateway
   if (!currentMember) {
     return <Navigate to="/login" replace />;
+  }
+
+  return children;
+}
+
+// Role-Based Guardrail to protect admin capabilities
+function AdminRoute({ children }: { children: React.JSX.Element }) {
+  const { currentMember } = useSession();
+
+  // If the logged-in member isn't explicitly configured as an ADMIN, bounce them back to dashboard
+  if (currentMember?.role !== 'ADMIN') {
+    return <Navigate to="/" replace />;
   }
 
   return children;
@@ -51,6 +65,17 @@ export default function App() {
             <Route path="loans" element={<Loans />} />
             <Route path="members" element={<Members />} />
             <Route path="contributions" element={<Contributions />} />
+            <Route path="overview" element={<LedgerOverview />} />
+
+            {/* Registered Protected Admin Control Route */}
+            <Route
+              path="admin"
+              element={
+                <AdminRoute>
+                  <AdminDashboard />
+                </AdminRoute>
+              }
+            />
           </Route>
 
           {/* Fallback Catch-All */}
