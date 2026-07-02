@@ -1,0 +1,67 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ledger-bg: #F6F1E7;
+  --color-ledger-card: #FFFDF8;
+  --color-ledger-ink: #1B2430;
+  --color-ledger-ink-soft: #5B5646;
+  --color-ledger-green: #1F4B3F;
+  --color-ledger-green-deep: #163A31;
+  --color-ledger-gold: #B4842A;
+  --color-ledger-rust: #A8432D;
+  --color-ledger-sage: #4C7A5E;
+  --color-ledger-line: #DCD2B8;
+
+  --font-display: 'Fraunces', serif;
+  --font-body: 'IBM Plex Sans', sans-serif;
+  --font-mono: 'IBM Plex Mono', monospace;
+}
+
+body {
+  background-color: var(--color-ledger-bg);
+  color: var(--color-ledger-ink);
+  font-family: var(--font-body);
+  background-image:
+    linear-gradient(var(--color-ledger-line) 1px, transparent 1px);
+  background-size: 100% 2.1rem;
+  background-attachment: local;
+}
+
+.no-ruled {
+  background-image: none;
+}
+
+::selection {
+  background: var(--color-ledger-gold);
+  color: var(--color-ledger-card);
+}
+
+/* Stamp badge signature element */
+.stamp {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid currentColor;
+  border-radius: 9999px;
+  padding: 0.15rem 0.75rem;
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  transform: rotate(-3deg);
+  position: relative;
+}
+.stamp::after {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border: 1px solid currentColor;
+  border-radius: 9999px;
+  opacity: 0.5;
+}
+
+.amount {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
