@@ -4,7 +4,7 @@ import jakarta.persistence.*;
 import lombok.*;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "contributions")
@@ -29,7 +29,7 @@ public class Contribution {
     @Column(nullable = false)
     private BigDecimal amount;
 
-    private LocalDate paidDate;
+    private LocalDateTime paidDate;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)

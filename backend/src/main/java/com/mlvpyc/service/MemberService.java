@@ -44,4 +44,12 @@ public class MemberService {
 
         return memberRepository.save(existing);
     }
+
+    // NEW: Performs the core business logic for soft deactivating a member profile
+    @Transactional
+    public void deactivateMember(Long id) {
+        Member existing = getById(id);
+        existing.setStatus(Member.MemberStatus.INACTIVE);
+        memberRepository.save(existing);
+    }
 }

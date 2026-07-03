@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api/client';
-import type { PoolSummary, PriorityQueueEntry, MemberContributionSummary } from '../types';
+import type { PoolSummary, PriorityQueueEntry } from '../types';
 import { Rupee } from '../components/Rupee';
 import { useActiveTerm } from '../hooks/useActiveTerm';
 import { useSession } from '../context/SessionContext';
@@ -14,14 +14,17 @@ export function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [payLoading, setPayLoading] = useState(false);
 
-  useEffect(() => {
+  // States for the custom modal overlay
+  const [showModal, setShowModal] = useState(false);
+  const [modalMessage, setModalMessage] = useState('');
+
+  const loadDashboardData = () => {
     if (!termId) return;
 
     setLoading(true);
     Promise.all([
       api.terms.pool(termId),
       api.loans.priorityQueue(termId),
-      // Attempt to safely discover lifetime contributions if available
       api.members.list().then(list => {
         const matching = list.find(m => m.id === currentMember?.id);
         return matching ? (matching as any).totalContributions || 0 : 0;
@@ -34,30 +37,91 @@ export function Dashboard() {
       })
       .catch((err) => console.error("Error loading dashboard metrics:", err))
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    loadDashboardData();
   }, [termId, currentMember]);
 
-  // Find where the logged-in user explicitly sits in the current 6-month priority queue
   const myQueueEntry = queue.find((entry) => entry.memberId === currentMember?.id);
 
   const handlePayInstallment = async () => {
     if (!termId || !currentMember) return;
+
+    const now = new Date();
+    const currentMonthText = now.toLocaleString('default', { month: 'long' });
+    const currentYearNum = now.getFullYear();
+
+    // =========================================================================
+    // PRODUCTION CONSTRAINT MODE: RIGOROUS SAME-MONTH CHECK ENFORCED
+    // =========================================================================
+    const currentMonthYearLabel = `${currentMonthText} ${currentYearNum}`;
+
+    // Target the specific term and member ledger rows directly from the server database
+    const latestConts = await api.contributions.byTerm(termId, currentMember.id).catch(() => []);
+
+    const safeConts = Array.isArray(latestConts) ? latestConts : [];
+    const alreadyPaidThisMonth = safeConts.some((c: any) => {
+      if (!c) return false;
+
+      // Extract and match the date format strings against the current system date label
+      const paymentDate = new Date(c.paidDate || c.createdAt || new Date());
+      const formattedLogLabel = paymentDate.toLocaleDateString('default', { month: 'long', year: 'numeric' });
+      return formattedLogLabel === currentMonthYearLabel;
+    });
+
+    if (alreadyPaidThisMonth) {
+      const nextMonthDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+      const nextMonthText = nextMonthDate.toLocaleString('default', { month: 'long' });
+      const nextMonthYearNum = nextMonthDate.getFullYear();
+
+      setModalMessage(`${currentMonthText}/${currentYearNum} installment paid already. Next payment available on ${nextMonthText} 1st, ${nextMonthYearNum}. Status: Not eligible.`);
+      setShowModal(true);
+      return;
+    }
+    // =========================================================================
+
     setPayLoading(true);
+
+    const currentMonthIndex = now.getMonth();
+    const calculatedTermMonth = (currentMonthIndex % 6) + 1;
+    const amountValue = term?.monthlyContribution || 500;
+
+    // Fixed ISO string generation that captures your exact local clock hours/minutes/seconds
+    const localISOString = (() => {
+      const tzOffsetMinutes = now.getTimezoneOffset();
+      const localizedMS = now.getTime() - (tzOffsetMinutes * 60000);
+      return new Date(localizedMS).toISOString().slice(0, -1);
+    })();
+
     try {
-      // Direct integration mapping straight to your backend contribution controller
-      await api.contributions.create({
+      await api.contributions.add(termId, {
+        monthNumber: calculatedTermMonth,
+        amount: amountValue,
+        status: 'PAID',
+        paidDate: localISOString,
         memberId: currentMember.id,
         termId: termId,
-        amount: 500 // Default mandated 6-month cycle payment amount
+        member: { id: currentMember.id },
+        term: { id: termId }
       });
-      alert('Monthly contribution of ₹500 recorded successfully!');
-      // Refresh pool aggregates instantly
-      const updatedPool = await api.terms.pool(termId);
-      setPool(updatedPool);
+
+      setModalMessage(`For the ${currentMonthText}/${currentYearNum} MLVPYC contribution paid successfully! Current month updated.`);
+      setShowModal(true);
+
+      loadDashboardData();
     } catch (err: any) {
-      alert(err.message || 'Payment processing encountered an issue.');
+      setModalMessage(err.message || 'Payment processing encountered an issue.');
+      setShowModal(true);
     } finally {
       setPayLoading(false);
     }
+  };
+
+  const getModalHeading = () => {
+    if (modalMessage.includes('successfully')) return 'Payment Successful!';
+    if (modalMessage.includes('already')) return 'Notice';
+    return 'System Error';
   };
 
   if (termLoading) return <p style={{ color: '#5B5646', fontFamily: 'sans-serif' }}>Loading current rotation term…</p>;
@@ -72,13 +136,86 @@ export function Dashboard() {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '2.5rem', fontFamily: "'IBM Plex Sans', sans-serif" }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.75rem', marginTop: '-0.5rem', fontFamily: "'IBM Plex Sans', sans-serif", position: 'relative' }}>
+
+      {/* DISMISSIBLE MODAL OVERLAY BACKDROP */}
+      {showModal && (
+        <div
+          onClick={() => setShowModal(false)}
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(23, 20, 32, 0.4)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            cursor: 'pointer'
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              backgroundColor: '#FFFDF8',
+              border: '2px solid #DCD2B8',
+              borderRadius: '12px',
+              padding: '2rem',
+              maxWidth: '440px',
+              width: '90%',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.15), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+              cursor: 'default',
+              textAlign: 'center'
+            }}
+          >
+            <h4 style={{
+              fontFamily: "'Fraunces', serif",
+              fontSize: '1.45rem',
+              color: modalMessage.includes('successfully') ? '#16A34A' : modalMessage.includes('already') ? '#D97706' : '#DC2626',
+              margin: '0 0 1rem 0',
+              fontWeight: 700
+            }}>
+              {getModalHeading()}
+            </h4>
+
+            <p style={{ color: '#5B5646', fontSize: '0.95rem', lineHeight: 1.5, margin: '0 0 1.5rem 0', fontWeight: 500 }}>
+              {modalMessage}
+            </p>
+
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowModal(false);
+              }}
+              style={{
+                backgroundColor: '#374151',
+                color: '#FFFDF8',
+                border: 'none',
+                borderRadius: '8px',
+                padding: '0.6rem 1.5rem',
+                fontSize: '0.85rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                outline: 'none',
+                transition: 'background-color 0.2s'
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#1F2937')}
+              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#374151')}
+            >
+              Okay
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* SECTION 1: HEADER IDENTITY HEADER */}
-      <section style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', borderBottom: '2px solid #DCD2B8', paddingBottom: '1rem' }}>
+      <section style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', borderBottom: '2px solid #DCD2B8', paddingBottom: '0.75rem' }}>
         <div>
-          <p style={{ textTransform: 'uppercase', fontSize: '0.75rem', tracking: '0.1em', color: '#5B5646', fontWeight: 600, letterSpacing: '0.05em', margin: '0 0 4px 0' }}>Current Active 6-Month Cycle</p>
-          <h2 style={{ fontFamily: "'Fraunces', serif", fontSize: '2.2rem', fontWeight: 700, color: '#163A31', margin: 0 }}>{term?.termName}</h2>
+          <p style={{ textTransform: 'uppercase', fontSize: '0.72rem', color: '#5B5646', fontWeight: 600, letterSpacing: '0.05em', margin: '0 0 2px 0' }}>Current Active 6-Month Cycle</p>
+          <h2 style={{ fontFamily: "'Fraunces', serif", fontSize: '2.1rem', fontWeight: 700, color: '#163A31', margin: 0 }}>{term?.termName}</h2>
         </div>
         <div style={{ backgroundColor: '#1F4B3F', color: '#FFFDF8', padding: '0.5rem 1rem', borderRadius: '6px', fontSize: '0.85rem', fontWeight: 600 }}>
           Loan Limit Rule: Max <Rupee value={200000} /> per person
@@ -92,7 +229,7 @@ export function Dashboard() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '2rem' }}>
 
           {/* Item 1: Custom Priority Rank indicator */}
-          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', justifyToContent: 'space-between' }}>
             <span style={{ color: '#A09BB0', fontSize: '0.75rem', textTransform: 'uppercase', fontWeight: 600 }}>Next Loan Priority</span>
             <span style={{ fontSize: '2rem', fontWeight: 700, color: '#FFFFFF', margin: '0.5rem 0' }}>
               {myQueueEntry ? `#${myQueueEntry.rank}` : 'Last'}
@@ -106,7 +243,7 @@ export function Dashboard() {
           <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
             <span style={{ color: '#A09BB0', fontSize: '0.75rem', textTransform: 'uppercase', fontWeight: 600 }}>Your Saved Contribution</span>
             <div style={{ margin: '0.5rem 0' }}>
-              <Rupee value={myContribution > 0 ? myContribution : (pool ? 500 : 0)} className="text-2xl font-semibold" style={{ color: '#FFFFFF', fontSize: '2rem', fontWeight: 700 }} />
+              <Rupee value={myContribution > 0 ? myContribution : (pool ? (term?.monthlyContribution || 500) : 0)} style={{ color: '#FFFFFF', fontSize: '2rem', fontWeight: 700 }} />
             </div>
             <span style={{ color: '#7E7A8A', fontSize: '0.75rem' }}>Includes historical pool values</span>
           </div>
@@ -114,8 +251,8 @@ export function Dashboard() {
           {/* Item 3: Quick Action Monthly default payout module */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', borderLeft: '1px solid #363145', paddingLeft: '1.5rem' }}>
             <div>
-              <span style={{ color: '#A09BB0', fontSize: '0.75rem', textTransform: 'uppercase', fontWeight: 600, display: 'block' }}>Monthly Term Installment</span>
-              <span style={{ fontSize: '1.1rem', fontWeight: 600, color: '#4ADE80', display: 'block', mt: '2px' }}>₹ 500.00 Due</span>
+              <span style={{ color: '#A09BB0', fontSize: '0.75rem', textTransform: 'uppercase', fontWeight: 600, display: 'block' }}>Monthly Club Installment</span>
+              <span style={{ fontSize: '1.1rem', fontWeight: 600, color: '#4ADE80', display: 'block' }}>₹ {(term?.monthlyContribution || 500).toFixed(2)} Due</span>
             </div>
             <button
               onClick={handlePayInstallment}
@@ -133,7 +270,7 @@ export function Dashboard() {
                 opacity: payLoading ? 0.5 : 1
               }}
             >
-              {payLoading ? 'Recording Payment...' : 'Pay ₹500 Default Installment'}
+              {payLoading ? 'Recording Payment...' : `Pay Installment`}
             </button>
           </div>
 
@@ -143,24 +280,24 @@ export function Dashboard() {
       {/* SECTION 3: MUTUAL FINANCIAL POOL AGGREGATES */}
       <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
         <div style={{ padding: '1.25rem 1.5rem', backgroundColor: '#FFFDF8', border: '1px solid #DCD2B8', borderRadius: '8px' }}>
-          <p style={{ textTransform: 'uppercase', fontSize: '0.7rem', tracking: '0.05em', color: '#5B5646', margin: '0 0 6px 0', fontWeight: 600 }}>Collected From Members This Term</p>
+          <p style={{ textTransform: 'uppercase', fontSize: '0.7rem', color: '#5B5646', margin: '0 0 6px 0', fontWeight: 600 }}>Collected From Members This Term</p>
           <Rupee value={pool?.totalCollected ?? 0} style={{ fontSize: '1.75rem', fontWeight: 700, color: '#1B2430' }} />
         </div>
 
         <div style={{ padding: '1.25rem 1.5rem', backgroundColor: '#FFFDF8', border: '1px solid #DCD2B8', borderRadius: '8px' }}>
-          <p style={{ textTransform: 'uppercase', fontSize: '0.7rem', tracking: '0.05em', color: '#5B5646', margin: '0 0 6px 0', fontWeight: 600 }}>Currently Lent Out</p>
+          <p style={{ textTransform: 'uppercase', fontSize: '0.7rem', color: '#5B5646', margin: '0 0 6px 0', fontWeight: 600 }}>Currently Lent Out</p>
           <Rupee value={pool?.totalLent ?? 0} style={{ fontSize: '1.75rem', fontWeight: 700, color: '#1B2430' }} />
         </div>
 
         <div style={{ padding: '1.25rem 1.5rem', backgroundColor: '#FFFDF8', border: '1px solid #B4842A', borderRadius: '8px', boxShadow: '0 4px 12px rgba(180,132,42,0.08)' }}>
-          <p style={{ textTransform: 'uppercase', fontSize: '0.7rem', tracking: '0.05em', color: '#B4842A', margin: '0 0 6px 0', fontWeight: 700 }}>Available Fund to Borrow</p>
+          <p style={{ textTransform: 'uppercase', fontSize: '0.7rem', color: '#B4842A', margin: '0 0 6px 0', fontWeight: 700 }}>Available Fund to Borrow</p>
           <Rupee value={pool?.available ?? 0} style={{ fontSize: '1.75rem', fontWeight: 700, color: '#B4842A' }} />
         </div>
       </section>
 
       {/* SECTION 4: LOAN PRIORITY LIST TRANSPARENCY QUEUE */}
       <section style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContext: 'space-between', justifyContent: 'space-between', alignItems: 'baseline' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'baseline' }}>
           <h3 style={{ fontFamily: "'Fraunces', serif", fontSize: '1.35rem', fontWeight: 600, color: '#163A31', margin: 0 }}>Term Priority Matrix</h3>
           <span style={{ fontSize: '0.75rem', color: '#5B5646', fontWeight: 500 }}>Lower Score = Higher Priority for next cycle allocation</span>
         </div>

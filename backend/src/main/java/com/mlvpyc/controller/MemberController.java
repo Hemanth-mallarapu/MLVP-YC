@@ -3,6 +3,7 @@ package com.mlvpyc.controller;
 import com.mlvpyc.entity.Member;
 import com.mlvpyc.service.MemberService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -32,5 +33,12 @@ public class MemberController {
     @PutMapping("/{id}")
     public Member update(@PathVariable Long id, @RequestBody Member updates) {
         return memberService.update(id, updates);
+    }
+
+    // NEW: Soft-delete endpoint that inactivates a member instead of dropping the database row
+    @DeleteMapping("/{id}")
+    public ResponseEntity<String> delete(@PathVariable Long id) {
+        memberService.deactivateMember(id);
+        return ResponseEntity.ok("Member status changed to INACTIVE successfully.");
     }
 }
