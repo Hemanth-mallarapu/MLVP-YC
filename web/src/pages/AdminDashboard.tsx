@@ -86,7 +86,7 @@ export function AdminDashboard() {
     }
   };
 
-  // Handles BOTH Deactivation (Soft Delete) and Re-activation
+  // Handles BOTH Deactivation and Re-activation with dual field synchronization
   const handleToggleStatus = async (memberId: any, name: string, currentStatus: string) => {
     setError('');
     setSuccess('');
@@ -103,18 +103,26 @@ export function AdminDashboard() {
     setActionLoading(`status-${memberId}`);
 
     try {
-      if (isCurrentlyInactive) {
-        await (api.members as any).update(memberId, { status: 'ACTIVE' });
-        setSuccess(`Member "${name}" was successfully re-activated!`);
-      } else {
-        if (api.members && typeof (api.members as any).delete === 'function') {
-          await (api.members as any).delete(memberId);
+      if (api.members && typeof (api.members as any).update === 'function') {
+        if (isCurrentlyInactive) {
+          // RE-ACTIVATE: Explicitly set status to ACTIVE and turn the is_active flag back to true
+          await (api.members as any).update(memberId, {
+            status: 'ACTIVE',
+            is_active: true
+          });
+          setSuccess(`Member "${name}" was successfully re-activated!`);
         } else {
-          await (api.members as any).remove(memberId);
+          // DEACTIVATE: Instead of calling delete endpoints, update status to INACTIVE and set is_active to false
+          await (api.members as any).update(memberId, {
+            status: 'INACTIVE',
+            is_active: false
+          });
+          setSuccess(`Member "${name}" was successfully deactivated.`);
         }
-        setSuccess(`Member "${name}" was successfully deactivated.`);
+        await loadDashboardData();
+      } else {
+        throw new Error("Member update endpoint 'api.members.update' is not defined.");
       }
-      await loadDashboardData();
     } catch (err: any) {
       setError(err.message || 'Failed to toggle member visibility configuration.');
     } finally {

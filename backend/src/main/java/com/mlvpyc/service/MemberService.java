@@ -45,6 +45,21 @@ public class MemberService {
         return memberRepository.save(existing);
     }
 
+    // NEW: Core update logic to persist pre-hashed credentials securely to PostgreSQL
+    @Transactional
+    public void updatePasswordSecurely(Long id, String oldPassword, String newPassword, org.springframework.security.crypto.password.PasswordEncoder encoder) {
+        Member existing = getById(id);
+
+        // 1. Verify if the entered current password matches the BCrypt hash stored in the DB
+        if (!encoder.matches(oldPassword, existing.getPassword())) {
+            throw new IllegalArgumentException("Your current password does not match our records.");
+        }
+
+        // 2. If it matches, hash the new password and persist it
+        existing.setPassword(encoder.encode(newPassword));
+        memberRepository.save(existing);
+    }
+
     // NEW: Performs the core business logic for soft deactivating a member profile
     @Transactional
     public void deactivateMember(Long id) {

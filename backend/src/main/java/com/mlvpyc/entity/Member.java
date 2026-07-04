@@ -22,6 +22,15 @@ public class Member {
 
     private String email;
 
+    // ADDED: Password storage column for secure authentication credentials
+    @Column(nullable = false)
+    private String password;
+
+    // ADDED: Synchronized boolean flag to track state along with MemberStatus
+    @Column(name = "is_active", nullable = false)
+    @Builder.Default
+    private Boolean isActive = true;
+
     @Column(nullable = false)
     private LocalDate joinDate;
 

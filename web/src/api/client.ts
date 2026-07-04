@@ -31,8 +31,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
   if (res.status === 204) return undefined as T;
 
-  // SAFE TEXT RECOVERY: Checks content type header metadata so it won't crash
-  // on a JSON parse error if the Spring Boot API returns a plain text message string.
+  // SAFE TEXT RECOVERY
   const contentType = res.headers.get('content-type');
   if (contentType && contentType.includes('text')) {
     return res.text() as unknown as T;
@@ -48,9 +47,6 @@ export const api = {
     create: (data: Partial<import('../types').Member>) =>
       request<import('../types').Member>('/members', { method: 'POST', body: JSON.stringify(data) }),
 
-    // =========================================================================
-    // ADDED INTEGRATION ENHANCEMENTS FOR SYSTEM CONTROLS
-    // =========================================================================
     update: (id: number, data: Partial<import('../types').Member>) =>
       request<import('../types').Member>(`/members/${id}`, {
         method: 'PUT',
@@ -60,6 +56,15 @@ export const api = {
     delete: (id: number) =>
       request<string>(`/members/${id}`, {
         method: 'DELETE'
+      }),
+
+    // =========================================================================
+    // NEW: PASSWORD RESET INTEGRATION
+    // =========================================================================
+    resetPassword: (id: number, data: { password: string }) =>
+      request<{ message: string }>(`/members/${id}/password`, {
+        method: 'PUT',
+        body: JSON.stringify(data)
       }),
     // =========================================================================
   },

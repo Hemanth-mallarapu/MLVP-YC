@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
+import { api } from '../api/client';
 import { useSession } from '../context/SessionContext';
 
 export function Layout() {
@@ -8,17 +9,67 @@ export function Layout() {
   const location = useLocation();
   const [showMenu, setShowMenu] = useState(false);
 
+  // COMPACT PREMIUM PASSWORD RESET OVERLAY MODAL STATES
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [oldPassword, setOldPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [modalError, setModalError] = useState('');
+  const [modalSubmitting, setModalSubmitting] = useState(false);
+
   // Fallback safe rendering parameter for user profile
   const userName = currentMember?.name || 'Club Member';
   const userRole = currentMember?.role || 'MEMBER';
 
+  // Handles dropdown option routes and modal state triggers
   const handleMenuAction = (action: string) => {
     setShowMenu(false);
     if (action === 'logout') {
       logout();
       navigate('/login');
+    } else if (action === 'Reset Password') {
+      // Clear old state tracking values and open password update modal
+      setOldPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setModalError('');
+      setIsResetModalOpen(true);
     } else {
       alert(`${action} integration is simulated for current term.`);
+    }
+  };
+
+  // Handles dispatching the secure credential adjustment payload to Spring Boot
+  const handlePasswordResetSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setModalError('');
+
+    if (newPassword.length < 6) {
+      setModalError('Password must be at least 6 characters long.');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setModalError('Passwords do not match.');
+      return;
+    }
+
+    setModalSubmitting(true);
+    try {
+      if (!currentMember?.id) throw new Error('No active user session detected.');
+
+      // Fires request to updated endpoint passing both validation metrics
+      await api.members.resetPassword(Number(currentMember.id), {
+        oldPassword,
+        password: newPassword
+      });
+
+      alert('🎉 Password changed successfully!');
+      setIsResetModalOpen(false);
+    } catch (err: any) {
+      setModalError(err.message || 'Failed to update credentials.');
+    } finally {
+      setModalSubmitting(false);
     }
   };
 
@@ -136,6 +187,176 @@ export function Layout() {
       <main style={{ flex: 1, padding: '2.5rem 2rem', backgroundColor: '#F6F1E7', position: 'relative', zIndex: 10 }}>
         <Outlet />
       </main>
+
+      {/* INTERACTIVE COMPACT PREMIUM PASSWORD RESET MODAL */}
+      {isResetModalOpen && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh',
+          backgroundColor: 'rgba(23, 20, 32, 0.4)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999
+        }}>
+          <div style={{
+            // FIXED: Swapped dark gradient out for the premium cream card theme from the dashboard popups
+            backgroundColor: '#FFFDF8',
+            border: '2px solid #DCD2B8',
+            borderRadius: '12px',
+            padding: '1.7rem 2rem', width: '90%', maxWidth: '360px',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+            fontFamily: "'IBM Plex Sans', sans-serif"
+          }}>
+
+            <div style={{ marginBottom: '1.25rem' }}>
+              <span style={{ display: 'block', textTransform: 'uppercase', fontSize: '0.65rem', color: '#B4842A', fontWeight: 700, letterSpacing: '0.08em', marginBottom: '2px' }}>
+                Security Settings Checkpoint
+              </span>
+              <h3 style={{ fontFamily: "'Fraunces', serif", fontSize: '1.45rem', color: '#1F4B3F', margin: 0, fontWeight: 700 }}>
+                Reset Access Password
+              </h3>
+            </div>
+
+            <form onSubmit={handlePasswordResetSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
+
+              {/* Old Password Input Frame */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                <label style={{ fontSize: '0.7rem', fontWeight: 600, color: '#5B5646', letterSpacing: '0.02em' }}>
+                  CURRENT PASSWORD
+                </label>
+                <input
+                  required
+                  type="password"
+                  value={oldPassword}
+                  onChange={(e) => setOldPassword(e.target.value)}
+                  placeholder="Enter current password"
+                  style={{
+                    padding: '0.7rem 0.9rem',
+                    backgroundColor: '#FFFDF8',
+                    border: '1px solid #DCD2B8',
+                    borderRadius: '6px',
+                    fontSize: '0.9rem',
+                    outline: 'none',
+                    color: '#1B2430',
+                    transition: 'all 0.2s ease'
+                  }}
+                  onFocus={(e) => {
+                    e.target.style.borderColor = '#1F4B3F';
+                  }}
+                  onBlur={(e) => {
+                    e.target.style.borderColor = '#DCD2B8';
+                  }}
+                />
+              </div>
+
+              {/* New Password Input Frame */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                <label style={{ fontSize: '0.7rem', fontWeight: 600, color: '#5B5646', letterSpacing: '0.02em' }}>
+                  NEW ACCESS PASSWORD
+                </label>
+                <input
+                  required
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="Minimum 6 characters"
+                  style={{
+                    padding: '0.7rem 0.9rem',
+                    backgroundColor: '#FFFDF8',
+                    border: '1px solid #DCD2B8',
+                    borderRadius: '6px',
+                    fontSize: '0.9rem',
+                    outline: 'none',
+                    color: '#1B2430',
+                    transition: 'all 0.2s ease'
+                  }}
+                  onFocus={(e) => {
+                    e.target.style.borderColor = '#1F4B3F';
+                  }}
+                  onBlur={(e) => {
+                    e.target.style.borderColor = '#DCD2B8';
+                  }}
+                />
+              </div>
+
+              {/* Confirm Password Input Frame */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                <label style={{ fontSize: '0.7rem', fontWeight: 600, color: '#5B5646', letterSpacing: '0.02em' }}>
+                  CONFIRM NEW PASSWORD
+                </label>
+                <input
+                  required
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Re-enter to confirm"
+                  style={{
+                    padding: '0.7rem 0.9rem',
+                    backgroundColor: '#FFFDF8',
+                    border: '1px solid #DCD2B8',
+                    borderRadius: '6px',
+                    fontSize: '0.9rem',
+                    outline: 'none',
+                    color: '#1B2430',
+                    transition: 'all 0.2s ease'
+                  }}
+                  onFocus={(e) => {
+                    e.target.style.borderColor = '#1F4B3F';
+                  }}
+                  onBlur={(e) => {
+                    e.target.style.borderColor = '#DCD2B8';
+                  }}
+                />
+              </div>
+
+              {modalError && (
+                <div style={{
+                  color: '#DC2626', fontSize: '0.8rem', fontWeight: 600,
+                  backgroundColor: 'rgba(220, 38, 38, 0.05)', padding: '0.5rem 0.75rem',
+                  borderRadius: '6px', border: '1px solid rgba(220, 38, 38, 0.15)'
+                }}>
+                  ⚠️ {modalError}
+                </div>
+              )}
+
+              {/* Action Buttons Matrix */}
+              <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
+                <button
+                  type="button"
+                  onClick={() => { setIsResetModalOpen(false); setModalError(''); }}
+                  style={{
+                    flex: 1, padding: '0.65rem', borderRadius: '6px',
+                    border: '1px solid #DCD2B8', backgroundColor: 'transparent',
+                    cursor: 'pointer', fontWeight: 600, color: '#5B5646',
+                    fontSize: '0.85rem', transition: 'all 0.15s ease'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = '#EFECE2';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = 'transparent';
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={modalSubmitting}
+                  style={{
+                    flex: 1, padding: '0.65rem', borderRadius: '6px', border: 'none',
+                    backgroundColor: '#1F4B3F', color: '#FFFDF8', cursor: 'pointer',
+                    fontWeight: 600, fontSize: '0.85rem', opacity: modalSubmitting ? 0.7 : 1,
+                    transition: 'all 0.15s ease'
+                  }}
+                  onMouseEnter={(e) => { if(!modalSubmitting) e.currentTarget.style.backgroundColor = '#163A31'; }}
+                  onMouseLeave={(e) => { if(!modalSubmitting) e.currentTarget.style.backgroundColor = '#1F4B3F'; }}
+                >
+                  {modalSubmitting ? 'Saving...' : 'Update Password'}
+                </button>
+              </div>
+
+            </form>
+
+          </div>
+        </div>
+      )}
 
       {/* PRODUCTION GRADE BRAND FOOTER LAYER */}
       <footer style={{ backgroundColor: '#1B2430', color: '#FFFDF8', padding: '2.5rem 2rem', marginTop: 'auto', borderTop: '4px solid #B4842A', position: 'relative', zIndex: 20 }}>

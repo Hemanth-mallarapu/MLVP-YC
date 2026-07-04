@@ -7,8 +7,17 @@ export function Members() {
   const { members, refreshMembers, currentMember } = useSession();
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<{ code: string; message: string } | null>(null);
+
+  // PASSWORD RESET MODAL STATES
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [modalError, setModalError] = useState('');
+  const [modalSubmitting, setModalSubmitting] = useState(false);
 
   const isAdmin = currentMember?.role === 'ADMIN';
 
@@ -17,15 +26,51 @@ export function Members() {
     setSubmitting(true);
     setError(null);
     try {
-      await api.members.create({ name, phone });
+      // Sends the enriched credential data structure directly to the API endpoint
+      await api.members.create({ name, phone, email, password });
       setName('');
       setPhone('');
+      setEmail('');
+      setPassword('');
       await refreshMembers();
     } catch (e) {
       if (e instanceof ApiRequestError) setError({ code: e.errorCode, message: e.message });
       else setError({ code: 'UNKNOWN', message: 'Could not add member.' });
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  // Handles the in-app password reset API request
+  const handlePasswordResetSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setModalError('');
+
+    if (newPassword.length < 6) {
+      setModalError('Password must be at least 6 characters long.');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setModalError('Passwords do not match.');
+      return;
+    }
+
+    setModalSubmitting(true);
+    try {
+      // UPDATED: Now utilizes your type-safe SDK method from client.ts
+      if (!currentMember?.id) throw new Error('No active user session detected.');
+
+      await api.members.resetPassword(Number(currentMember.id), { password: newPassword });
+
+      alert('🎉 Password changed successfully!');
+      setNewPassword('');
+      setConfirmPassword('');
+      setIsResetModalOpen(false);
+    } catch (err: any) {
+      setModalError(err.message || 'Failed to update credentials in security node.');
+    } finally {
+      setModalSubmitting(false);
     }
   };
 
@@ -46,16 +91,26 @@ export function Members() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2.5rem', fontFamily: "'IBM Plex Sans', sans-serif" }}>
 
       {/* HEADER SECTION */}
-      <div>
-        <p style={{ textTransform: 'uppercase', fontSize: '0.75rem', color: '#5B5646', fontWeight: 600, margin: '0 0 4px 0', letterSpacing: '0.05em' }}>
-          Institutional Registry Directory
-        </p>
-        <h2 style={{ fontFamily: "'Fraunces', serif", fontSize: '2rem', color: '#1F4B3F', margin: 0 }}>
-          Registered Club Roster
-        </h2>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div>
+          <p style={{ textTransform: 'uppercase', fontSize: '0.75rem', color: '#5B5646', fontWeight: 600, margin: '0 0 4px 0', letterSpacing: '0.05em' }}>
+            Institutional Registry Directory
+          </p>
+          <h2 style={{ fontFamily: "'Fraunces', serif", fontSize: '2rem', color: '#1F4B3F', margin: 0 }}>
+            Registered Club Roster
+          </h2>
+        </div>
+
+        {/* FALLBACK TRIGGER: Allows testing password reset directly from the page layout if sidebar linkage is pending */}
+        <button
+          onClick={() => { setIsResetModalOpen(true); setModalError(''); }}
+          style={{ padding: '0.5rem 1rem', border: '1px solid #DCD2B8', borderRadius: '6px', backgroundColor: '#FFFDF8', color: '#1F4B3F', fontWeight: 600, cursor: 'pointer', fontSize: '0.85rem' }}
+        >
+          🔒 Security Settings
+        </button>
       </div>
 
-      {/* DYNAMIC CARD GRID VIEW (Replaces raw horizontal scroll table) */}
+      {/* DYNAMIC CARD GRID VIEW */}
       {safeMembersList.length === 0 ? (
         <div style={{ backgroundColor: '#FFFDF8', border: '1px dashed #DCD2B8', padding: '2.5rem', borderRadius: '12px', color: '#5B5646', textAlign: 'center' }}>
           No registered profiles detected within the database registry node.
@@ -117,8 +172,9 @@ export function Members() {
 
                 {/* Secure Contact Attributes Data Frame */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.85rem', color: '#5B5646' }}>
+                  <div><strong>Email Anchor:</strong> <span style={{ color: '#1B2430' }}>{m.email || 'Not Linked'}</span></div>
                   <div><strong>Phone Anchor:</strong> <span style={{ fontFamily: 'monospace', fontSize: '0.9rem', color: '#1B2430' }}>{m.phone || '9876543210'}</span></div>
-                  <div><strong>Status Flag:</strong> <span style={{ fontWeight: 600, color: '#16A34A', fontSize: '0.8rem' }}>● {m.status || 'ACTIVE'}</span></div>
+                  <div><strong>Status Flag:</strong> <span style={{ fontWeight: 600, color: m.status === 'INACTIVE' ? '#DC2626' : '#16A34A', fontSize: '0.8rem' }}>● {m.status || 'ACTIVE'}</span></div>
                 </div>
 
                 {/* System Authority Status Row Footer */}
@@ -179,6 +235,30 @@ export function Members() {
               />
             </div>
 
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <label style={{ fontSize: '0.8rem', fontWeight: 600, color: '#5B5646', textTransform: 'uppercase' }}>Email Address</label>
+              <input
+                required
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="e.g. ramesh@gmail.com"
+                style={{ padding: '0.8rem 1rem', border: '1px solid #DCD2B8', borderRadius: '8px', fontSize: '0.95rem', outline: 'none', backgroundColor: '#FFFDF8', color: '#1B2430' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <label style={{ fontSize: '0.8rem', fontWeight: 600, color: '#5B5646', textTransform: 'uppercase' }}>Assign Access Password</label>
+              <input
+                required
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Minimum 6 characters"
+                style={{ padding: '0.8rem 1rem', border: '1px solid #DCD2B8', borderRadius: '8px', fontSize: '0.95rem', outline: 'none', backgroundColor: '#FFFDF8', color: '#1B2430' }}
+              />
+            </div>
+
             <button
               type="submit"
               disabled={submitting}
@@ -196,7 +276,7 @@ export function Members() {
                 transition: 'all 0.15s'
               }}
             >
-              {submitting ? 'Registering Signature Node…' : 'Add New Club Member'}
+              {submitting ? 'Registering Credentials...' : 'Add New Club Member'}
             </button>
           </form>
 
@@ -205,6 +285,79 @@ export function Members() {
               <FallbackNotice code={error.code} message={error.message} />
             </div>
           )}
+        </div>
+      )}
+
+      {/* ZONE 3: FLOATING IN-APP PASSWORD RESET POPUP OVERLAY */}
+      {isResetModalOpen && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh',
+          backgroundColor: 'rgba(27, 36, 48, 0.5)', display: 'flex',
+          alignItems: 'center', justifyContent: 'center', zIndex: 9999
+        }}>
+          <div style={{
+            backgroundColor: '#FFFDF8', border: '1px solid #DCD2B8',
+            borderRadius: '12px', padding: '2rem', width: '90%', maxWidth: '400px',
+            boxShadow: '0 12px 32px rgba(0,0,0,0.15)'
+          }}>
+
+            <h3 style={{ fontFamily: "'Fraunces', serif", fontSize: '1.4rem', color: '#1F4B3F', margin: '0 0 1.25rem 0' }}>
+              Reset Account Password
+            </h3>
+
+            <form onSubmit={handlePasswordResetSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#5B5646', textTransform: 'uppercase' }}>New Password</label>
+                <input
+                  required
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="Minimum 6 characters"
+                  style={{ padding: '0.75rem 1rem', border: '1px solid #DCD2B8', borderRadius: '8px', fontSize: '0.95rem', outline: 'none', backgroundColor: '#FFFDF8', color: '#1B2430' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#5B5646', textTransform: 'uppercase' }}>Confirm New Password</label>
+                <input
+                  required
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Re-enter password to confirm"
+                  style={{ padding: '0.75rem 1rem', border: '1px solid #DCD2B8', borderRadius: '8px', fontSize: '0.95rem', outline: 'none', backgroundColor: '#FFFDF8', color: '#1B2430' }}
+                />
+              </div>
+
+              {modalError && (
+                <div style={{ color: '#DC2626', fontSize: '0.85rem', fontWeight: 600, backgroundColor: 'rgba(239, 68, 68, 0.05)', padding: '0.5rem', borderRadius: '4px' }}>
+                  ⚠️ {modalError}
+                </div>
+              )}
+
+              {/* Action Buttons Row */}
+              <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
+                <button
+                  type="button"
+                  onClick={() => { setIsResetModalOpen(false); setModalError(''); }}
+                  style={{ flex: 1, padding: '0.75rem', borderRadius: '8px', border: '1px solid #DCD2B8', backgroundColor: 'transparent', cursor: 'pointer', fontWeight: 600, color: '#5B5646' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={modalSubmitting}
+                  style={{ flex: 1, padding: '0.75rem', borderRadius: '8px', border: 'none', backgroundColor: '#1F4B3F', color: '#FFFDF8', cursor: 'pointer', fontWeight: 600, opacity: modalSubmitting ? 0.7 : 1 }}
+                >
+                  {modalSubmitting ? 'Saving...' : 'Update Password'}
+                </button>
+              </div>
+
+            </form>
+
+          </div>
         </div>
       )}
 
