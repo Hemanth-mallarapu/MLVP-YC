@@ -42,22 +42,6 @@ public class MemberController {
         return memberService.update(id, updates);
     }
 
-    /*// NEW: Handles secure password reset changes initiated directly from frontend components
-    @PutMapping("/{id}/password")
-    public ResponseEntity<?> resetPassword(@PathVariable Long id, @RequestBody Map<String, String> payload) {
-        String newPassword = payload.get("password");
-
-        if (newPassword == null || newPassword.trim().length() < 6) {
-            return ResponseEntity.badRequest().body(Map.of("message", "Password must be at least 6 characters long."));
-        }
-
-        // Encrypt plain string password securely before calling service to persist changes
-        String hashedPassword = passwordEncoder.encode(newPassword);
-        memberService.updatePassword(id, hashedPassword);
-
-        return ResponseEntity.ok(Map.of("message", "Password changed successfully"));
-    }*/
-
     @PutMapping("/{id}/password")
     public ResponseEntity<?> resetPassword(@PathVariable Long id, @RequestBody Map<String, String> payload) {
         String oldPassword = payload.get("oldPassword");
@@ -68,11 +52,11 @@ public class MemberController {
         }
 
         try {
-            // Pass both the plain old password text and the new password string to the service
-            memberService.updatePasswordSecurely(id, oldPassword, newPassword, passwordEncoder);
+            // FIXED: Removed the 4th parameter since MemberService handles its own encoder dependency
+            memberService.updatePasswordSecurely(id, oldPassword, newPassword);
             return ResponseEntity.ok(Map.of("message", "Password changed successfully"));
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(Map.of("message", e.message()));
+            return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
         }
     }
 
@@ -81,5 +65,35 @@ public class MemberController {
     public ResponseEntity<String> delete(@PathVariable Long id) {
         memberService.deactivateMember(id);
         return ResponseEntity.ok("Member status changed to INACTIVE successfully.");
+    }
+
+    @PostMapping("/login")
+    public ResponseEntity<?> login(@RequestBody Map<String, String> payload) {
+        String identifier = payload.get("identifier");
+        String password = payload.get("password");
+
+        if (identifier == null || password == null) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Missing credentials."));
+        }
+
+        // 1. Find user by email or phone via your service layers
+        java.util.List<Member> members = memberService.getAll();
+        Member matchedUser = members.stream()
+                                    .filter(m -> identifier.equalsIgnoreCase(m.getEmail()) || identifier.equals(m.getPhone()))
+                                    .findFirst()
+                                    .orElse(null);
+
+        if (matchedUser == null) {
+            return ResponseEntity.status(404).body(Map.of("message", "User not found. Please register or check details."));
+        }
+
+        // 2. CRITICAL MATCH GATE: This strictly checks against the PostgreSQL BCrypt hash!
+        // It will automatically reject your old password since the hash changed!
+        if (!passwordEncoder.matches(password, matchedUser.getPassword())) {
+            return ResponseEntity.status(401).body(Map.of("message", "Invalid credentials. Incorrect password."));
+        }
+
+        // 3. Return the authenticated user profile safely if password matches
+        return ResponseEntity.ok(matchedUser);
     }
 }

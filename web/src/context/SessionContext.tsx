@@ -6,7 +6,7 @@ interface SessionContextValue {
   members: Member[];
   currentMember: Member | null;
   loading: boolean;
-  login: (phone: string, email: string) => Promise<void>; // Expanded for real auth later
+  login: (identifier: string, isEmail: boolean, passwordInput: string) => Promise<void>;
   logout: () => void;
   refreshMembers: () => Promise<void>;
 }
@@ -22,7 +22,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const refreshMembers = async () => {
-    // Only fetch members if a user is logged in (Production requirement)
     if (!currentMember) {
       setLoading(false);
       return;
@@ -38,32 +37,33 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // Run on startup or when the user logs in
   useEffect(() => {
     refreshMembers();
   }, [currentMember]);
 
-  // Handle production-ready login action
-  const login = async (phone: string, email: string) => {
+  // Handle production-ready login action routed via backend verification paths
+  const login = async (identifier: string, isEmail: boolean, passwordInput: string) => {
     setLoading(true);
     try {
-      // For now, we find the matching member.
-      // Next step, this will point to your backend endpoint: api.auth.login({ phone, email })
-      const list = await api.members.list();
-      const matchedUser = list.find(m => m.phone === phone); // Basic check for now
+      // Evict existing credentials from the client memory state to guarantee fresh assignments
+      localStorage.removeItem('mlvpyc.auth_user');
 
-      if (!matchedUser) {
-        throw new Error('User not found. Please register or check details.');
-      }
+      // Hand off identity lookup attributes straight to Spring Security's PasswordEncoder matches loop
+      const authenticatedUser = await api.members.login({
+        identifier: identifier.trim(),
+        password: passwordInput
+      });
 
-      setCurrentMember(matchedUser);
-      localStorage.setItem('mlvpyc.auth_user', JSON.stringify(matchedUser));
+      setCurrentMember(authenticatedUser);
+      localStorage.setItem('mlvpyc.auth_user', JSON.stringify(authenticatedUser));
+    } catch (err: any) {
+      // Bubble up the explicit backend rejection messages (e.g., 401 Incorrect Password) directly to UI panels
+      throw new Error(err.message || 'Invalid credentials.');
     } finally {
       setLoading(false);
     }
   };
 
-  // Handle logout
   const logout = () => {
     setCurrentMember(null);
     setMembers([]);

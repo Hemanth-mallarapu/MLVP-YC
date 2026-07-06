@@ -14,4 +14,7 @@ public interface MemberRepository extends JpaRepository<Member, Long> {
 
     // Returns only active users for regular application views
     List<Member> findByStatus(Member.MemberStatus status);
+
+    // ADD THIS FOR THE OTP FLOW LOOKUP
+    Optional<Member> findByEmail(String email);
 }

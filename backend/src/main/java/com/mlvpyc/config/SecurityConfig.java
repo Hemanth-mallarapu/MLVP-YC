@@ -27,9 +27,16 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
-            .csrf(csrf -> csrf.disable())
-            .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-            .authorizeHttpRequests(auth -> auth.anyRequest().permitAll());
+                .csrf(csrf -> csrf.disable())
+                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .authorizeHttpRequests(auth -> auth
+                        // FUTURE-PROOFING: Explicitly allow public access to our password recovery paths
+                        .requestMatchers("/api/public/**").permitAll()
+
+                        // Currently allows everything else. When you add JWT blocks later,
+                        // you will change this line to .anyRequest().authenticated()
+                        .anyRequest().permitAll()
+                );
         return http.build();
     }
 }

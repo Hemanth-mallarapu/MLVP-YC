@@ -41,6 +41,23 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 }
 
 export const api = {
+  // =========================================================================
+  // NEW: UNAUTHENTICATED PUBLIC ENDPOINTS (OTP FLOW)
+  // =========================================================================
+  public: {
+    generateOtp: (email: string) =>
+      request<{ message: string }>('/public/forgot-password/generate-otp', {
+        method: 'POST',
+        body: JSON.stringify({ email })
+      }),
+    verifyAndReset: (data: { email: string; otp: string; password: string }) =>
+      request<{ message: string }>('/public/forgot-password/verify-and-reset', {
+        method: 'POST',
+        body: JSON.stringify(data)
+      }),
+  },
+  // =========================================================================
+
   members: {
     list: () => request<import('../types').Member[]>('/members'),
     get: (id: number) => request<import('../types').Member>(`/members/${id}`),
@@ -58,15 +75,19 @@ export const api = {
         method: 'DELETE'
       }),
 
-    // =========================================================================
-    // NEW: PASSWORD RESET INTEGRATION
-    // =========================================================================
+    // USED BY THE SIDEBAR/MENU RESET MODAL (`Layout.tsx`)
     resetPassword: (id: number, data: { password: string }) =>
       request<{ message: string }>(`/members/${id}/password`, {
         method: 'PUT',
         body: JSON.stringify(data)
       }),
-    // =========================================================================
+
+    // NEW: TRUE SECURE CRYPTOGRAPHIC LOGIN ROUTE FOR NEW ENDPOINT
+    login: (data: { identifier: string; password: string }) =>
+      request<import('../types').Member>('/members/login', {
+        method: 'POST',
+        body: JSON.stringify(data)
+      }),
   },
   terms: {
     get: (id: number) => request<import('../types').Term>(`/terms/${id}`),
